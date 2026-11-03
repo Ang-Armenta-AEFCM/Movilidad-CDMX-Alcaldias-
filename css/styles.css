@@ -15,3 +15,8 @@
 
 /* El mapa recibe los clics; las capas cartográficas son exclusivamente visuales. */
 #map .leaflet-heatmap-layer { pointer-events: none; }
+
+/* Cursores de navegación y consulta; ninguna capa captura clics adicionales. */
+#map.leaflet-container { cursor: grab; }
+#map.leaflet-container.map-cursor-pointer { cursor: pointer; }
+#map.leaflet-container.map-cursor-grabbing { cursor: grabbing; }

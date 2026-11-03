@@ -112,3 +112,30 @@ map.on('click',event=>{
   const boroughInfo=`<div class="popup"><h3>${borough.properties.NOMGEO}</h3><p><strong>${fmt(total)} estudiantes internacionales</strong></p><p>${fmt(cct)} CCT con estudiantes</p></div>`;
   L.popup({maxWidth:340}).setLatLng(event.latlng).setContent(boroughInfo+referenceDetailsAt(event.latlng)).openOn(map);
 });
+
+
+// Cursores informativos. No se modifican los eventos de clic existentes.
+// Las capas GeoJSON siguen sin interceptar eventos del mapa.
+function pointHasReference(latlng){
+  for(const [id,config] of Object.entries(referenceConfig)){
+    if(!$(config.check).checked||!referenceData[id])continue;
+    if(referenceData[id].features.some(f=>containsLocation(f.geometry,latlng)))return true;
+  }
+  return false;
+}
+function updateMapCursor(latlng){
+  const clickable=!!(schoolAtClick(latlng)||pointHasReference(latlng)||boroughAtClick(latlng));
+  map.getContainer().classList.toggle('map-cursor-pointer',clickable);
+}
+map.on('mousemove',event=>{
+  if(!map.getContainer().classList.contains('map-cursor-grabbing'))updateMapCursor(event.latlng);
+});
+map.on('dragstart',()=>map.getContainer().classList.add('map-cursor-grabbing'));
+map.on('dragend',event=>{
+  map.getContainer().classList.remove('map-cursor-grabbing');
+  // El cursor vuelve a responder a la ubicación del ratón en el siguiente movimiento.
+  map.getContainer().classList.remove('map-cursor-pointer');
+});
+map.on('mouseout',()=>{
+  map.getContainer().classList.remove('map-cursor-pointer','map-cursor-grabbing');
+});
