@@ -8,3 +8,7 @@
 
 /* Leyenda breve de las capas de referencia (uMap) */
 .overlay-source-legend{margin-top:11px;padding:10px;border:1px solid #e6eaec;border-radius:7px;background:#fafbfc;font-size:10.5px;line-height:1.45;color:#53636b}.overlay-source-legend>div{display:flex;gap:8px;align-items:center;margin-bottom:7px}.overlay-source-legend>div .overlay-swatch{flex-shrink:0}.overlay-source-legend small{display:block;color:#7b858a;font-size:10px;margin-top:5px}
+
+/* Solo las circunferencias escolares capturan clics, nunca el lienzo SVG vacío. */
+.leaflet-marker-pane > svg { pointer-events: none; }
+.leaflet-marker-pane > svg .leaflet-interactive { pointer-events: auto; }
