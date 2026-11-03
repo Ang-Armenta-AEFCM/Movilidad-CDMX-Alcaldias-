@@ -34,8 +34,10 @@ function overlayPopup(feature,kind){
   return `<div class="popup"><p class="overlay-kind">${safeText(kind)}</p><h3>${safeText(title)}</h3>${rows.join('')}</div>`;
 }
 async function initReferenceLayers(){
-  if(!map.getPane('referencePriority')){map.createPane('referencePriority');map.getPane('referencePriority').style.zIndex='427';}
-  if(!map.getPane('referenceCamps')){map.createPane('referenceCamps');map.getPane('referenceCamps').style.zIndex='429';}
+  // Los rellenos se muestran debajo de la capa de clics de alcaldías (z=425).
+  // Solo las líneas de las zonas quedan encima para consultar su ficha.
+  if(!map.getPane('referenceFills')){map.createPane('referenceFills');map.getPane('referenceFills').style.zIndex='410';map.getPane('referenceFills').style.pointerEvents='none';}
+  if(!map.getPane('referenceOutlines')){map.createPane('referenceOutlines');map.getPane('referenceOutlines').style.zIndex='440';}
   const entries=Object.entries(referenceConfig);
   await Promise.all(entries.map(async ([id,config])=>{
     try{
@@ -43,11 +45,10 @@ async function initReferenceLayers(){
       if(!response.ok)throw new Error(`HTTP ${response.status}`);
       const data=await response.json();
       if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('GeoJSON no válido');
-      const pane=id==='priority'?'referencePriority':'referenceCamps';
-      // El relleno es visible pero no captura clics: permite abrir la ficha de alcaldía.
-      const visual=L.geoJSON(data,{pane,style:()=>({...config.style}),interactive:false});
-      // Las fichas de referencia siguen disponibles al pulsar directamente su contorno.
-      const outline=L.geoJSON(data,{pane,style:()=>({color:config.style.color,weight:8,opacity:0.001,fill:false}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
+      // La geometría coloreada nunca bloquea los clics sobre las alcaldías.
+      const visual=L.geoJSON(data,{pane:'referenceFills',style:()=>({...config.style}),interactive:false});
+      // Únicamente la línea del perímetro permite abrir la ficha de la zona.
+      const outline=L.geoJSON(data,{pane:'referenceOutlines',style:()=>({color:config.style.color,weight:5,opacity:0.001,fill:false}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
       referenceLayers[id]=L.layerGroup([visual,outline]);
       const input=$(config.check);
       input.addEventListener('change',()=>{if(input.checked)referenceLayers[id].addTo(map);else map.removeLayer(referenceLayers[id]);});
