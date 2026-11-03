@@ -3,11 +3,14 @@ const fmt=n=>Number(n).toLocaleString('es-MX');let schools=[],geo=null,poly=null
   if(!boroughClicks){
     if(!map.getPane('boroughClickPane')){map.createPane('boroughClickPane');map.getPane('boroughClickPane').style.zIndex='425';}
     boroughClicks=L.geoJSON(geo,{pane:'boroughClickPane',style:{color:'transparent',weight:0,fillColor:'#ffffff',fillOpacity:0.002},interactive:true,
-      onEachFeature:(f,l)=>{l.on('click',()=>{
+      onEachFeature:(f,l)=>{l.on('click',event=>{
         const name=norm(f.properties.NOMGEO),members=filtered.filter(x=>norm(x.alcaldia)===name);
         const sum=members.reduce((n,x)=>n+x.count,0);
         const cct=new Set(members.map(x=>x.cct)).size;
-        l.bindPopup(`<div class="popup"><h3>${f.properties.NOMGEO}</h3><p><strong>${fmt(sum)} estudiantes internacionales</strong></p><p>${fmt(cct)} CCT con estudiantes</p></div>`).openPopup();
+        // Un solo punto de entrada para los clics: ninguna capa de referencia tapa a las alcaldías.
+        const zoneDetails=referenceDetailsAt(event.latlng);
+        const boroughInfo=`<div class="popup"><h3>${f.properties.NOMGEO}</h3><p><strong>${fmt(sum)} estudiantes internacionales</strong></p><p>${fmt(cct)} CCT con estudiantes</p></div>`;
+        L.popup({maxWidth:340}).setLatLng(event.latlng).setContent(boroughInfo+zoneDetails).openOn(map);
       });}
     }).addTo(map);
   }
@@ -17,6 +20,34 @@ if(boundaries)boundaries.bringToFront();$('status').textContent=geo?'':'Límites
 
 // Capas de referencia importadas del respaldo uMap; se cargan sin duplicar alcaldías.
 const referenceLayers = {priority:null,camps:null};
+const referenceData = {priority:null,camps:null};
+// Hit-testing de polígonos GeoJSON, sin capas transparentes que capturen eventos.
+function insideRing(lon,lat,ring){
+  let hit=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const a=ring[i],b=ring[j];
+    if((a[1]>lat)!==(b[1]>lat) && lon<(b[0]-a[0])*(lat-a[1])/(b[1]-a[1])+a[0])hit=!hit;
+  }
+  return hit;
+}
+function insidePolygon(lon,lat,rings){
+  return rings.length>0&&insideRing(lon,lat,rings[0])&&!rings.slice(1).some(r=>insideRing(lon,lat,r));
+}
+function containsLocation(geometry,ll){
+  if(!geometry)return false;
+  if(geometry.type==='Polygon')return insidePolygon(ll.lng,ll.lat,geometry.coordinates);
+  if(geometry.type==='MultiPolygon')return geometry.coordinates.some(rings=>insidePolygon(ll.lng,ll.lat,rings));
+  return false;
+}
+function referenceDetailsAt(latlng){
+  let details=[];
+  for(const [id,config] of Object.entries(referenceConfig)){
+    if(!$(config.check).checked||!referenceData[id])continue;
+    const matches=referenceData[id].features.filter(f=>containsLocation(f.geometry,latlng));
+    for(const f of matches)details.push(overlayPopup(f,config.label));
+  }
+  return details.join('');
+}
 const referenceConfig = {
   priority:{check:'showPriority',file:'data/zonas_prioritarias.geojson',label:'Zona prioritaria',style:{color:'#0878aa',weight:2.8,opacity:1,fillColor:'#6dd7fb',fillOpacity:0.10,dashArray:null}},
   camps:{check:'showCamps',file:'data/campamentos.geojson',label:'Campamento, zona o colonia',style:{color:'#6534ad',weight:2.8,opacity:1,fillColor:'#c69af8',fillOpacity:0.10,dashArray:'7 4'}}
@@ -34,12 +65,12 @@ function overlayPopup(feature,kind){
   return `<div class="popup"><p class="overlay-kind">${safeText(kind)}</p><h3>${safeText(title)}</h3>${rows.join('')}</div>`;
 }
 async function initReferenceLayers(){
-  // Los rellenos se muestran debajo de la capa de clics de alcaldías (z=425).
-  // Solo las líneas de las zonas quedan encima para consultar su ficha.
-  if(!map.getPane('referenceFills')){map.createPane('referenceFills');map.getPane('referenceFills').style.zIndex='410';map.getPane('referenceFills').style.pointerEvents='none';}
-  if(!map.getPane('referenceOutlines')){map.createPane('referenceOutlines');map.getPane('referenceOutlines').style.zIndex='440';map.getPane('referenceOutlines').style.pointerEvents='none';}
-  // SVG mantiene eventos exclusivamente en los trazos; evita el canvas transparente que interceptaba clics.
-  const outlineRenderer=L.svg({pane:'referenceOutlines'});
+  // Los polígonos solo son visuales; sus fichas se consultan desde el clic de alcaldía.
+  if(!map.getPane('referenceFills')){
+    map.createPane('referenceFills');
+    map.getPane('referenceFills').style.zIndex='410';
+    map.getPane('referenceFills').style.pointerEvents='none';
+  }
   const entries=Object.entries(referenceConfig);
   await Promise.all(entries.map(async ([id,config])=>{
     try{
@@ -47,12 +78,9 @@ async function initReferenceLayers(){
       if(!response.ok)throw new Error(`HTTP ${response.status}`);
       const data=await response.json();
       if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('GeoJSON no válido');
-      // La geometría coloreada nunca bloquea los clics sobre las alcaldías.
-      const visual=L.geoJSON(data,{pane:'referenceFills',style:()=>({...config.style}),interactive:false});
-      // Únicamente la línea del perímetro permite abrir la ficha de la zona.
-      const outline=L.geoJSON(data,{pane:'referenceOutlines',renderer:outlineRenderer,style:()=>({color:config.style.color,weight:5,opacity:0.001,fill:false,interactive:true}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
-      referenceLayers[id]=L.layerGroup([visual,outline]);
-      outline.eachLayer(layer=>layer.on('add',()=>{const el=layer.getElement?.();if(el)el.style.pointerEvents='stroke';}));
+      // La capa es 100% no interactiva: no puede bloquear las fichas, ni al activarse ni al apagarse.
+      referenceData[id]=data;
+      referenceLayers[id]=L.geoJSON(data,{pane:'referenceFills',style:()=>({...config.style}),interactive:false});
       const input=$(config.check);
       input.addEventListener('change',()=>{if(input.checked)referenceLayers[id].addTo(map);else map.removeLayer(referenceLayers[id]);});
       if(input.checked)referenceLayers[id].addTo(map);
