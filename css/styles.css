@@ -5,3 +5,6 @@
 
 /* Capas de referencia externas: visibles y distinguibles sobre los mapas de calor */
 .overlay-controls{margin-top:17px;padding-top:15px;border-top:1px solid #e6eaec}.overlay-controls .overlay-title{margin-bottom:10px}.overlay-swatch{display:inline-block;width:19px;height:13px;border-radius:3px;flex-shrink:0}.priority-swatch{border:2px solid #0878aa;background:#5fd1f933}.camps-swatch{border:2px solid #6534ad;background:#bd91f533}.overlay-controls .toggle{gap:8px}.overlay-controls .toggle small{font-size:10px;color:#76818a}.overlay-help{font-size:11px;line-height:1.5;margin-top:10px}.popup .overlay-kind{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#4b6674;margin:0 0 5px}.popup .overlay-description{white-space:pre-wrap;overflow-wrap:anywhere}.popup .overlay-link{overflow-wrap:anywhere}
+
+/* Leyenda breve de las capas de referencia (uMap) */
+.overlay-source-legend{margin-top:11px;padding:10px;border:1px solid #e6eaec;border-radius:7px;background:#fafbfc;font-size:10.5px;line-height:1.45;color:#53636b}.overlay-source-legend>div{display:flex;gap:8px;align-items:center;margin-bottom:7px}.overlay-source-legend>div .overlay-swatch{flex-shrink:0}.overlay-source-legend small{display:block;color:#7b858a;font-size:10px;margin-top:5px}
