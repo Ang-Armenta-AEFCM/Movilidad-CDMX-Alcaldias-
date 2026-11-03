@@ -12,3 +12,6 @@
 /* Solo las circunferencias escolares capturan clics, nunca el lienzo SVG vacío. */
 .leaflet-marker-pane > svg { pointer-events: none; }
 .leaflet-marker-pane > svg .leaflet-interactive { pointer-events: auto; }
+
+/* El mapa recibe los clics; las capas cartográficas son exclusivamente visuales. */
+#map .leaflet-heatmap-layer { pointer-events: none; }
