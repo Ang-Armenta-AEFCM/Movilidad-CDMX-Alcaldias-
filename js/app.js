@@ -37,7 +37,9 @@ async function initReferenceLayers(){
   // Los rellenos se muestran debajo de la capa de clics de alcaldías (z=425).
   // Solo las líneas de las zonas quedan encima para consultar su ficha.
   if(!map.getPane('referenceFills')){map.createPane('referenceFills');map.getPane('referenceFills').style.zIndex='410';map.getPane('referenceFills').style.pointerEvents='none';}
-  if(!map.getPane('referenceOutlines')){map.createPane('referenceOutlines');map.getPane('referenceOutlines').style.zIndex='440';}
+  if(!map.getPane('referenceOutlines')){map.createPane('referenceOutlines');map.getPane('referenceOutlines').style.zIndex='440';map.getPane('referenceOutlines').style.pointerEvents='none';}
+  // SVG mantiene eventos exclusivamente en los trazos; evita el canvas transparente que interceptaba clics.
+  const outlineRenderer=L.svg({pane:'referenceOutlines'});
   const entries=Object.entries(referenceConfig);
   await Promise.all(entries.map(async ([id,config])=>{
     try{
@@ -48,8 +50,9 @@ async function initReferenceLayers(){
       // La geometría coloreada nunca bloquea los clics sobre las alcaldías.
       const visual=L.geoJSON(data,{pane:'referenceFills',style:()=>({...config.style}),interactive:false});
       // Únicamente la línea del perímetro permite abrir la ficha de la zona.
-      const outline=L.geoJSON(data,{pane:'referenceOutlines',style:()=>({color:config.style.color,weight:5,opacity:0.001,fill:false}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
+      const outline=L.geoJSON(data,{pane:'referenceOutlines',renderer:outlineRenderer,style:()=>({color:config.style.color,weight:5,opacity:0.001,fill:false,interactive:true}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
       referenceLayers[id]=L.layerGroup([visual,outline]);
+      outline.eachLayer(layer=>layer.on('add',()=>{const el=layer.getElement?.();if(el)el.style.pointerEvents='stroke';}));
       const input=$(config.check);
       input.addEventListener('change',()=>{if(input.checked)referenceLayers[id].addTo(map);else map.removeLayer(referenceLayers[id]);});
       if(input.checked)referenceLayers[id].addTo(map);
