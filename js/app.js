@@ -1,74 +1,57 @@
 
-// Isolíneas reales de densidad: el contorno sigue la forma de las manchas, sin círculos ni trazos punteados.
-function makeHeatContours(items, boroughGeometry){
- const layer=L.layerGroup(),valid=items.filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lon)&&x.count>0);
- if(!valid.length)return layer;
- const step=.0038,sigma=.011,lonScale=Math.cos(19.4*Math.PI/180),lonSigma=sigma/lonScale;
- let minLat=Math.max(19.0,Math.min(...valid.map(x=>x.lat))-.026),maxLat=Math.min(19.65,Math.max(...valid.map(x=>x.lat))+.026);
- let minLon=Math.max(-99.45,Math.min(...valid.map(x=>x.lon))-.035),maxLon=Math.min(-98.85,Math.max(...valid.map(x=>x.lon))+.035);
- const nx=Math.min(160,Math.ceil((maxLon-minLon)/step)+1),ny=Math.min(160,Math.ceil((maxLat-minLat)/step)+1);
- const field=new Float32Array(nx*ny),radius=3*sigma,lonRadius=3*lonSigma;
- for(const x of valid){let w=Math.sqrt(x.count),i0=Math.max(0,Math.floor((x.lon-lonRadius-minLon)/step)),i1=Math.min(nx-1,Math.ceil((x.lon+lonRadius-minLon)/step)),j0=Math.max(0,Math.floor((x.lat-radius-minLat)/step)),j1=Math.min(ny-1,Math.ceil((x.lat+radius-minLat)/step));
-  for(let j=j0;j<=j1;j++){let dy=(minLat+j*step-x.lat)/sigma,dy2=dy*dy;for(let i=i0;i<=i1;i++){let dx=(minLon+i*step-x.lon)/lonSigma;field[j*nx+i]+=w*Math.exp(-.5*(dx*dx+dy2))}}}
- let peak=0;for(let v of field)if(v>peak)peak=v;
- if(!peak)return layer;
- const edgePairs={1:[[3,0]],2:[[0,1]],3:[[3,1]],4:[[1,2]],5:[[3,2],[0,1]],6:[[0,2]],7:[[3,2]],8:[[2,3]],9:[[0,2]],10:[[0,3],[1,2]],11:[[1,2]],12:[[1,3]],13:[[0,1]],14:[[3,0]]};
- for(let threshold of [peak*.18,peak*.36]){
-  let segments=[],at=(i,j)=>field[j*nx+i];
-  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){
-   let vals=[at(i,j),at(i+1,j),at(i+1,j+1),at(i,j+1)];let mask=vals.reduce((a,v,k)=>a|(v>=threshold?1<<k:0),0);if(!edgePairs[mask])continue;
-   let xy=[[i,j],[i+1,j],[i+1,j+1],[i,j+1]];
-   const interpolate=e=>{let a=e,b=(e+1)%4,t=(threshold-vals[a])/(vals[b]-vals[a]||1);return [minLat+(xy[a][1]+(xy[b][1]-xy[a][1])*t)*step,minLon+(xy[a][0]+(xy[b][0]-xy[a][0])*t)*step]};
-   for(let [a,b] of edgePairs[mask])segments.push([interpolate(a),interpolate(b)]);
+const fmt=n=>Number(n).toLocaleString('es-MX');let schools=[],geo=null,poly=null,boundaries=null,heat=null,boroughClicks=null,points=null,selected='',filtered=[];const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([19.37,-99.14],10);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Esri, HERE, Garmin, OpenStreetMap contributors',maxZoom:19}).addTo(map);const $=id=>document.getElementById(id);const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');const nval=x=>Number(x)||0;const select=(id,values)=>[...new Set(values)].sort((a,b)=>a.localeCompare(b,'es')).forEach(v=>{let o=document.createElement('option');o.value=v;o.textContent=v;$(id).append(o)});function amount(x){return x.total;}function jenks(data,k){let values=[...data].sort((a,b)=>a-b),n=values.length;if(!n)return [0,1];k=Math.min(k,n);let mat1=Array.from({length:n+1},()=>Array(k+1).fill(0)),mat2=Array.from({length:n+1},()=>Array(k+1).fill(Infinity));for(let i=1;i<=k;i++){mat1[1][i]=1;mat2[1][i]=0}for(let l=2;l<=n;l++){let sum=0,sq=0,w=0;for(let m=1;m<=l;m++){let i=l-m+1,v=values[i-1];w++;sum+=v;sq+=v*v;let variance=sq-sum*sum/w;if(i>1)for(let j=2;j<=k;j++){let z=variance+mat2[i-1][j-1];if(mat2[l][j]>=z){mat1[l][j]=i;mat2[l][j]=z}}}mat1[l][1]=1;mat2[l][1]=sq-sum*sum/w}let breaks=Array(k+1);breaks[k]=values[n-1];breaks[0]=values[0];let count=k,idx=n;while(count>1){let id=Math.max(1,mat1[idx][count]-1);breaks[count-1]=values[id-1];idx=id;count--}return breaks}const palette=['#fff0f1','#f6bfca','#ed91aa','#d35481','#983657'];function color(v,breaks){let idx=0;for(let i=1;i<breaks.length-1;i++)if(v>breaks[i])idx++;return palette[Math.min(idx,4)]}function apply(){let bor=$('borough').value;filtered=schools.map(x=>({...x,count:amount(x)})).filter(x=>(!bor||norm(x.alcaldia)===norm(bor))&&x.count>0);let total=filtered.reduce((s,x)=>s+x.count,0);$('total').textContent=fmt(total);$('schools').textContent=fmt(filtered.length);let agg={};for(let x of filtered)agg[norm(x.alcaldia)]=(agg[norm(x.alcaldia)]||0)+x.count;let ranking=Object.entries(agg).sort((a,b)=>b[1]-a[1]);$('ranking').innerHTML=ranking.slice(0,8).map(([key,v])=>{let name=schools.find(x=>norm(x.alcaldia)===key)?.alcaldia||key;return `<div class="rankrow"><span class="rankname">${name}</span><div class="barback"><div class="bar" style="width:${100*v/ranking[0][1]}%"></div></div><b>${fmt(v)}</b></div>`}).join('')||'<p>Sin registros para los filtros seleccionados.</p>';if(poly){map.removeLayer(poly);poly=null}if(heat){map.removeLayer(heat);heat=null}if(points){map.removeLayer(points);points=null}if(geo&&$('showBoroughs').checked){let breaks=jenks(Object.values(agg).concat(Array.from({length:Math.max(0,16-Object.keys(agg).length)},()=>0)),5);poly=L.geoJSON(geo,{style:f=>{let v=agg[norm(f.properties.NOMGEO)]||0;return {stroke:false,fillColor:v?color(v,breaks):'#f5f5f5',fillOpacity:v ? .47 : .12}},interactive:false}).addTo(map)}if($('showZones').checked&&typeof L.heatLayer==='function'){heat=L.heatLayer(filtered.filter(x=>x.lat&&x.lon).map(x=>[x.lat,x.lon,Math.sqrt(x.count)]),{radius:24,blur:19,maxZoom:14,max:8,minOpacity:.30,gradient:{0.12:'#1bba72',0.32:'#a9d85e',0.50:'#ffe35d',0.68:'#ff982e',0.84:'#e53422',1:'#a80014'}}).addTo(map)}if($('showPoints').checked){let groups=new Map();for(let x of filtered.filter(x=>x.lat&&x.lon)){let key=x.inmueble_master||('CCT:'+x.cct);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(x)}points=L.layerGroup([...groups.values()].map(group=>{let x=group[0],count=group.reduce((s,y)=>s+y.count,0),multi=group.length>1;let details=multi?`<p><b>CCT con estudiantes internacionales en este inmueble:</b></p>${group.map(y=>`<p><b>${y.cct}</b> · ${y.nombre} · ${y.nivel}: <strong>${fmt(y.count)} estudiantes</strong></p>`).join('')}`:`<p><b>CCT:</b> ${x.cct}</p><p><b>Nivel:</b> ${x.nivel}</p>`;return L.circleMarker([x.lat,x.lon],{pane:'markerPane',radius:Math.min(12,3+Math.sqrt(count)*1.25),weight:1,color:'#fff',fillColor:'#087c6d',fillOpacity:.83}).bindPopup(`<div class="popup"><h3>${multi?'Inmueble con varios CCT':x.nombre}</h3><p><b>Alcaldía:</b> ${x.alcaldia}</p>${details}<p><strong>${fmt(count)} estudiantes en total</strong></p></div>`)})).addTo(map)}if(geo){
+  if(!boroughClicks){
+    if(!map.getPane('boroughClickPane')){map.createPane('boroughClickPane');map.getPane('boroughClickPane').style.zIndex='425';}
+    boroughClicks=L.geoJSON(geo,{pane:'boroughClickPane',style:{color:'transparent',weight:0,fillColor:'#ffffff',fillOpacity:0.002},interactive:true,
+      onEachFeature:(f,l)=>{l.on('click',()=>{
+        const name=norm(f.properties.NOMGEO),members=filtered.filter(x=>norm(x.alcaldia)===name);
+        const sum=members.reduce((n,x)=>n+x.count,0);
+        const cct=new Set(members.map(x=>x.cct)).size;
+        l.bindPopup(`<div class="popup"><h3>${f.properties.NOMGEO}</h3><p><strong>${fmt(sum)} estudiantes internacionales</strong></p><p>${fmt(cct)} CCT con estudiantes</p></div>`).openPopup();
+      });}
+    }).addTo(map);
   }
-  // Unir segmentos de marching squares en líneas continuas cerradas.
-  const key=p=>p[0].toFixed(6)+','+p[1].toFixed(6),lookup=new Map();
-  segments.forEach((seg,id)=>seg.forEach((pt,side)=>{let k=key(pt);if(!lookup.has(k))lookup.set(k,[]);lookup.get(k).push([id,side])}));
-  const used=new Uint8Array(segments.length);
-  for(let id=0;id<segments.length;id++){if(used[id])continue;used[id]=1;let path=[...segments[id]];
-   for(let dir=0;dir<2;dir++){for(let count=0;count<segments.length;count++){
-    let tip=dir===0?path[0]:path[path.length-1],next=(lookup.get(key(tip))||[]).find(([idx])=>!used[idx]);if(!next)break;
-    let [idx,side]=next;used[idx]=1;let other=segments[idx][1-side];if(dir===0)path.unshift(other);else path.push(other);
-   }}
-   if(path.length>=8){let closed=key(path[0])===key(path[path.length-1]);if(closed&&path.length>=10){const parts=boroughGeometry?clipContourToBorough(path,boroughGeometry):[path];for(const part of parts)if(part.length>=2)layer.addLayer(L.polyline(part,{color:threshold<peak*.25?'#a74d72':'#842a54',weight:1.8,opacity:.82,smoothFactor:1,interactive:false,lineCap:'round',lineJoin:'round'}))}}
-  }
- }
- return layer;
+  boroughClicks.bringToFront();
 }
-// Recorta las isolíneas sobre el polígono oficial de cada alcaldía, incluidos sus huecos.
-function clipContourToBorough(path,geometry){
- const polygons=geometry.type==='Polygon'?[geometry.coordinates]:geometry.type==='MultiPolygon'?geometry.coordinates:[];
- const rings=polygons.flatMap(poly=>poly);
- const insideRing=(p,ring)=>{let yes=false;const x=p[1],y=p[0];for(let i=0,j=ring.length-1;i<ring.length;j=i++){
-  const a=ring[i],b=ring[j];if(((a[1]>y)!==(b[1]>y))&&(x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]))yes=!yes;
- }return yes};
- const inside=p=>polygons.some(poly=>insideRing(p,poly[0])&&!poly.slice(1).some(hole=>insideRing(p,hole)));
- const output=[];let current=[];
- const add=p=>{if(!current.length||Math.abs(current[current.length-1][0]-p[0])+Math.abs(current[current.length-1][1]-p[1])>1e-9)current.push(p)};
- const flush=()=>{if(current.length>1)output.push(current);current=[]};
- for(let k=1;k<path.length;k++){
-  const a=path[k-1],b=path[k],ts=[0,1],dx=b[1]-a[1],dy=b[0]-a[0];
-  for(const ring of rings)for(let i=0;i<ring.length-1;i++){
-   const c=ring[i],d=ring[i+1],ex=d[0]-c[0],ey=d[1]-c[1],det=dx*ey-dy*ex;
-   if(Math.abs(det)<1e-13)continue;
-   const cx=c[0]-a[1],cy=c[1]-a[0],t=(cx*ey-cy*ex)/det,u=(cx*dy-cy*dx)/det;
-   if(t>1e-8&&t<1-1e-8&&u>=0&&u<=1)ts.push(t);
-  }
-  ts.sort((a,b)=>a-b);
-  for(let i=1;i<ts.length;i++){
-   const t0=ts[i-1],t1=ts[i];if(t1-t0<1e-9)continue;
-   const lerp=t=>[a[0]+dy*t,a[1]+dx*t];
-   if(inside(lerp((t0+t1)/2))){add(lerp(t0));add(lerp(t1))}else flush();
-  }
- }
- flush();return output;
+if(boundaries)boundaries.bringToFront();$('status').textContent=geo?'Mapa actualizado':'Límites de alcaldías no disponibles; mapa de calor activo.'}function fit(){map.fitBounds([[19.04,-99.38],[19.61,-98.92]],{padding:[15,15]})}for(let id of ['borough','showZones','showBoroughs','showPoints'])$(id).addEventListener('change',()=>{apply();if(id==='borough'&&$('borough').value){let a=filtered.filter(x=>x.lat&&x.lon);if(a.length)map.fitBounds(L.latLngBounds(a.map(x=>[x.lat,x.lon])).pad(.17),{maxZoom:13})}else if(id==='borough')fit()});$('reset').onclick=()=>{for(let id of ['borough'])$(id).value='';apply();fit()};$('fit').onclick=fit;async function init(){try{let r=await fetch('data/escuelas.json');if(!r.ok)throw Error('No se pudo cargar la información');schools=await r.json();select('borough',schools.map(x=>x.alcaldia));apply();fit()}catch(e){$('status').textContent=e.message+' · Abrir con servidor web local.';return}try{let url='https://services3.arcgis.com/GUmo8WkgMj5wT1l3/ArcGIS/rest/services/poligonos_alcaldias_cdmx/FeatureServer/0/query?where=1%3D1&outFields=NOMGEO&outSR=4326&f=geojson';let r=await fetch(url);if(!r.ok)throw Error('Servicio geográfico');let data=await r.json();if(data.features?.length===16){geo=data;boundaries=L.geoJSON(geo,{style:{color:'#73354e',weight:2.1,opacity:.95,fill:false},interactive:false}).addTo(map);boundaries.bringToFront();apply()}else throw Error('Límites incompletos')}catch(e){$('status').textContent='Mapa de calor disponible. Límites territoriales requieren conexión al servicio ArcGIS.'}}init();
+
+// Capas de referencia importadas del respaldo uMap; se cargan sin duplicar alcaldías.
+const referenceLayers = {priority:null,camps:null};
+const referenceConfig = {
+  priority:{check:'showPriority',file:'data/zonas_prioritarias.geojson',label:'Zona prioritaria',style:{color:'#0878aa',weight:2.8,opacity:1,fillColor:'#6dd7fb',fillOpacity:0.10,dashArray:null}},
+  camps:{check:'showCamps',file:'data/campamentos.geojson',label:'Campamento, zona o colonia',style:{color:'#6534ad',weight:2.8,opacity:1,fillColor:'#c69af8',fillOpacity:0.10,dashArray:'7 4'}}
+};
+// All content from uploaded GeoJSON is text, never trusted markup.
+function safeText(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function overlayPopup(feature,kind){
+  const p=feature.properties||{};
+  let title=p.Nombre||p.Zona||'Zona sin nombre';
+  let rows=[];
+  if(p.Zona)rows.push(`<p><b>Identificador:</b> ${safeText(p.Zona)}</p>`);
+  if(p['Dirección'])rows.push(`<p><b>Dirección:</b> ${safeText(p['Dirección'])}</p>`);
+  if(p['Características'])rows.push(`<p class="overlay-description"><b>Características:</b> ${safeText(p['Características'])}</p>`);
+  if(p['Descripción'])rows.push(`<p class="overlay-description"><b>Descripción:</b> ${safeText(p['Descripción'])}</p>`);
+  return `<div class="popup"><p class="overlay-kind">${safeText(kind)}</p><h3>${safeText(title)}</h3>${rows.join('')}</div>`;
 }
-function makeBoroughContours(items,geo){
- const layer=L.layerGroup();if(!geo?.features?.length)return layer;
- for(const feature of geo.features){const name=norm(feature.properties.NOMGEO);
-  const subset=items.filter(x=>norm(x.alcaldia)===name);
-  if(subset.length)layer.addLayer(makeHeatContours(subset,feature.geometry));
- }
- return layer;
+async function initReferenceLayers(){
+  if(!map.getPane('referencePriority')){map.createPane('referencePriority');map.getPane('referencePriority').style.zIndex='427';}
+  if(!map.getPane('referenceCamps')){map.createPane('referenceCamps');map.getPane('referenceCamps').style.zIndex='429';}
+  const entries=Object.entries(referenceConfig);
+  await Promise.all(entries.map(async ([id,config])=>{
+    try{
+      const response=await fetch(config.file);
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      const data=await response.json();
+      if(data.type!=='FeatureCollection'||!Array.isArray(data.features))throw new Error('GeoJSON no válido');
+      const pane=id==='priority'?'referencePriority':'referenceCamps';
+      referenceLayers[id]=L.geoJSON(data,{pane,style:()=>({...config.style}),onEachFeature:(feature,layer)=>layer.bindPopup(overlayPopup(feature,config.label),{maxWidth:320})});
+      const input=$(config.check);
+      input.addEventListener('change',()=>{if(input.checked)referenceLayers[id].addTo(map);else map.removeLayer(referenceLayers[id]);});
+      if(input.checked)referenceLayers[id].addTo(map);
+    }catch(error){
+      $(config.check).disabled=true;
+      console.error('No se cargó la capa '+id,error);
+    }
+  }));
 }
-const fmt=n=>Number(n).toLocaleString('es-MX');let schools=[],geo=null,poly=null,boundaries=null,heat=null,zoneContours=null,points=null,selected='',filtered=[];const map=L.map('map',{zoomControl:true,preferCanvas:true}).setView([19.37,-99.14],10);L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'Tiles © Esri — Esri, HERE, Garmin, OpenStreetMap contributors',maxZoom:19}).addTo(map);const $=id=>document.getElementById(id);const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');const nval=x=>Number(x)||0;const select=(id,values)=>[...new Set(values)].sort((a,b)=>a.localeCompare(b,'es')).forEach(v=>{let o=document.createElement('option');o.value=v;o.textContent=v;$(id).append(o)});function amount(x){let sh=$('shift').value,ge=$('gender').value;if(!sh&&!ge)return x.total;return Object.entries(x.combinaciones).reduce((s,[k,v])=>{let [t,g]=k.split('|');return s+((!sh||sh===t)&&(!ge||ge===g)?v:0)},0)}function jenks(data,k){let values=[...data].sort((a,b)=>a-b),n=values.length;if(!n)return [0,1];k=Math.min(k,n);let mat1=Array.from({length:n+1},()=>Array(k+1).fill(0)),mat2=Array.from({length:n+1},()=>Array(k+1).fill(Infinity));for(let i=1;i<=k;i++){mat1[1][i]=1;mat2[1][i]=0}for(let l=2;l<=n;l++){let sum=0,sq=0,w=0;for(let m=1;m<=l;m++){let i=l-m+1,v=values[i-1];w++;sum+=v;sq+=v*v;let variance=sq-sum*sum/w;if(i>1)for(let j=2;j<=k;j++){let z=variance+mat2[i-1][j-1];if(mat2[l][j]>=z){mat1[l][j]=i;mat2[l][j]=z}}}mat1[l][1]=1;mat2[l][1]=sq-sum*sum/w}let breaks=Array(k+1);breaks[k]=values[n-1];breaks[0]=values[0];let count=k,idx=n;while(count>1){let id=Math.max(1,mat1[idx][count]-1);breaks[count-1]=values[id-1];idx=id;count--}return breaks}const palette=['#fff0f1','#f6bfca','#ed91aa','#d35481','#983657'];function color(v,breaks){let idx=0;for(let i=1;i<breaks.length-1;i++)if(v>breaks[i])idx++;return palette[Math.min(idx,4)]}function apply(){let bor=$('borough').value,lev=$('level').value;filtered=schools.map(x=>({...x,count:amount(x)})).filter(x=>(!bor||norm(x.alcaldia)===norm(bor))&&(!lev||x.nivel===lev)&&x.count>0);let total=filtered.reduce((s,x)=>s+x.count,0);$('total').textContent=fmt(total);$('schools').textContent=fmt(filtered.length);let agg={};for(let x of filtered)agg[norm(x.alcaldia)]=(agg[norm(x.alcaldia)]||0)+x.count;let ranking=Object.entries(agg).sort((a,b)=>b[1]-a[1]);$('ranking').innerHTML=ranking.slice(0,8).map(([key,v])=>{let name=schools.find(x=>norm(x.alcaldia)===key)?.alcaldia||key;return `<div class="rankrow"><span class="rankname">${name}</span><div class="barback"><div class="bar" style="width:${100*v/ranking[0][1]}%"></div></div><b>${fmt(v)}</b></div>`}).join('')||'<p>Sin registros para los filtros seleccionados.</p>';if(poly){map.removeLayer(poly);poly=null}if(heat){map.removeLayer(heat);heat=null}if(points){map.removeLayer(points);points=null}if(zoneContours){map.removeLayer(zoneContours);zoneContours=null}if(geo&&$('showBoroughs').checked){let breaks=jenks(Object.values(agg).concat(Array.from({length:Math.max(0,16-Object.keys(agg).length)},()=>0)),5);poly=L.geoJSON(geo,{style:f=>{let v=agg[norm(f.properties.NOMGEO)]||0;return {stroke:false,fillColor:v?color(v,breaks):'#f5f5f5',fillOpacity:v ? .47 : .12}},onEachFeature:(f,l)=>{let v=agg[norm(f.properties.NOMGEO)]||0;l.bindPopup(`<div class="popup"><h3>${f.properties.NOMGEO}</h3><p><strong>${fmt(v)} estudiantes</strong> en los filtros actuales</p></div>`);l.on('click',()=>{$('borough').value=schools.find(x=>norm(x.alcaldia)===norm(f.properties.NOMGEO))?.alcaldia||'';apply()})}}).addTo(map)}if($('showZones').checked&&typeof L.heatLayer==='function'){heat=L.heatLayer(filtered.filter(x=>x.lat&&x.lon).map(x=>[x.lat,x.lon,Math.sqrt(x.count)]),{radius:24,blur:23,maxZoom:14,max:12,minOpacity:.23,gradient:{0.15:'#fff0f1',0.35:'#f6bfca',0.55:'#ed91aa',0.75:'#d35481',1:'#983657'}}).addTo(map)}if($('showZones').checked){zoneContours=makeBoroughContours(filtered,geo).addTo(map)} if($('showPoints').checked){let groups=new Map();for(let x of filtered.filter(x=>x.lat&&x.lon)){let key=x.inmueble_master||('CCT:'+x.cct);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(x)}points=L.layerGroup([...groups.values()].map(group=>{let x=group[0],count=group.reduce((s,y)=>s+y.count,0),multi=group.length>1;let details=multi?`<p><b>CCT con estudiantes internacionales en este inmueble:</b></p>${group.map(y=>`<p><b>${y.cct}</b> · ${y.nombre} · ${y.nivel}: <strong>${fmt(y.count)} estudiantes</strong></p>`).join('')}`:`<p><b>CCT:</b> ${x.cct}</p><p><b>Nivel:</b> ${x.nivel}</p>`;return L.circleMarker([x.lat,x.lon],{radius:Math.min(12,3+Math.sqrt(count)*1.25),weight:1,color:'#fff',fillColor:'#087c6d',fillOpacity:.83}).bindPopup(`<div class="popup"><h3>${multi?'Inmueble con varios CCT':x.nombre}</h3><p><b>Alcaldía:</b> ${x.alcaldia}</p>${details}<p><strong>${fmt(count)} estudiantes en total</strong></p></div>`)})).addTo(map)}if(boundaries)boundaries.bringToFront();$('status').textContent=geo?'Mapa actualizado':'Límites de alcaldías no disponibles; mapa de calor activo.'}function fit(){map.fitBounds([[19.04,-99.38],[19.61,-98.92]],{padding:[15,15]})}for(let id of ['borough','level','shift','gender','showZones','showBoroughs','showPoints'])$(id).addEventListener('change',()=>{apply();if(id==='borough'&&$('borough').value){let a=filtered.filter(x=>x.lat&&x.lon);if(a.length)map.fitBounds(L.latLngBounds(a.map(x=>[x.lat,x.lon])).pad(.17),{maxZoom:13})}else if(id==='borough')fit()});$('reset').onclick=()=>{for(let id of ['borough','level','shift','gender'])$(id).value='';apply();fit()};$('fit').onclick=fit;async function init(){try{let r=await fetch('data/escuelas.json');if(!r.ok)throw Error('No se pudo cargar la información');schools=await r.json();select('borough',schools.map(x=>x.alcaldia));select('level',schools.map(x=>x.nivel));select('shift',schools.flatMap(x=>Object.keys(x.turnos)));select('gender',schools.flatMap(x=>Object.keys(x.generos)));apply();fit()}catch(e){$('status').textContent=e.message+' · Abrir con servidor web local.';return}try{let url='https://services3.arcgis.com/GUmo8WkgMj5wT1l3/ArcGIS/rest/services/poligonos_alcaldias_cdmx/FeatureServer/0/query?where=1%3D1&outFields=NOMGEO&outSR=4326&f=geojson';let r=await fetch(url);if(!r.ok)throw Error('Servicio geográfico');let data=await r.json();if(data.features?.length===16){geo=data;boundaries=L.geoJSON(geo,{style:{color:'#73354e',weight:2.1,opacity:.95,fill:false},interactive:false}).addTo(map);boundaries.bringToFront();apply()}else throw Error('Límites incompletos')}catch(e){$('status').textContent='Mapa de calor disponible. Límites territoriales requieren conexión al servicio ArcGIS.'}}init();
+initReferenceLayers();
